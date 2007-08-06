@@ -1,26 +1,19 @@
-package Games::NES::Emulator::APU;
+package Games::NES::Emulator::Mappers::Mapper0;
 
 use strict;
 use warnings;
 
-use base qw( Class::Accessor::Fast );
+use base qw( Games::NES::Emulator::Mapper );
 
 =head1 NAME
 
-Games::NES::Emulator::APU - NES Audio Processing Unit
+Games::NES::Emulator::Mappers::Mapper0 - Mapper 0
 
 =head1 SYNOPSIS
 
 =head1 DESCRIPTION
 
 =head1 METHODS
-
-=head2 init( )
-
-=cut
-
-sub init {
-}
 
 =head1 AUTHOR
 
@@ -37,7 +30,7 @@ it under the same terms as Perl itself.
 
 =over 4 
 
-=item * L<Games::NES::Emulator>
+=item * L<Games::NES::Emulator::Mapper>
 
 =back
 

@@ -1,13 +1,15 @@
-package Games::NES::Emulator::APU;
+package Games::NES::Emulator::Input;
 
 use strict;
 use warnings;
 
 use base qw( Class::Accessor::Fast );
 
+__PACKAGE__->mk_accessors( qw( number ) );
+
 =head1 NAME
 
-Games::NES::Emulator::APU - NES Audio Processing Unit
+Games::NES::Emulator::Input - NES Controller
 
 =head1 SYNOPSIS
 
@@ -15,11 +17,11 @@ Games::NES::Emulator::APU - NES Audio Processing Unit
 
 =head1 METHODS
 
-=head2 init( )
+=head2 poll( )
 
 =cut
 
-sub init {
+sub poll {
 }
 
 =head1 AUTHOR

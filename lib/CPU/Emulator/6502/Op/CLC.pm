@@ -1,13 +1,15 @@
-package Games::NES::Emulator::APU;
+package CPU::Emulator::6502::Op::CLC;
 
 use strict;
 use warnings;
 
-use base qw( Class::Accessor::Fast );
+use constant ADDRESSING => {
+    implied => 0x18,
+};
 
 =head1 NAME
 
-Games::NES::Emulator::APU - NES Audio Processing Unit
+CPU::Emulator::6502::Op::CLC - Clear the carry flag
 
 =head1 SYNOPSIS
 
@@ -15,11 +17,15 @@ Games::NES::Emulator::APU - NES Audio Processing Unit
 
 =head1 METHODS
 
-=head2 init( )
+=head2 implied( )
 
 =cut
 
-sub init {
+sub implied {
+    my $self = shift;
+    my $reg = $self->registers;
+    $reg->{ status } &= CPU::Emulator::6502::CLEAR_CARRY;
+    $reg->{ pc }++;
 }
 
 =head1 AUTHOR
@@ -37,7 +43,7 @@ it under the same terms as Perl itself.
 
 =over 4 
 
-=item * L<Games::NES::Emulator>
+=item * L<CPU::Emulator::6502>
 
 =back
 

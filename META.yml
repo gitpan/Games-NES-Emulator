@@ -15,5 +15,8 @@ no_index:
 requires: 
   Class::Accessor::Fast: 0
   Games::NES::ROM: 0
+  Module::Pluggable::Object: 0
+  Scalar::Util: 0
   Test::More: 0
-version: 0.01
+  Text::SimpleTable: 0
+version: 0.02

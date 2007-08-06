@@ -1,13 +1,15 @@
-package Games::NES::Emulator::APU;
+package Games::NES::Emulator::PPU::Memory;
 
 use strict;
 use warnings;
 
 use base qw( Class::Accessor::Fast );
 
+__PACKAGE__->mk_accessors( qw( memory palette name_table ) );
+
 =head1 NAME
 
-Games::NES::Emulator::APU - NES Audio Processing Unit
+Games::NES::Emulator::PPU - NES VRAM
 
 =head1 SYNOPSIS
 
@@ -15,11 +17,17 @@ Games::NES::Emulator::APU - NES Audio Processing Unit
 
 =head1 METHODS
 
-=head2 init( )
+=head2 init()
 
 =cut
 
 sub init {
+    my( $self ) = @_;
+    $self->memory( [ (0) x ( 0x2000 + 1 ) ] );
+    $self->palette( [ (0) x ( 0x20 + 1 ) ] );
+    $self->name_table( [
+        map { [ (0) x (0x400 + 1) ] } ( 0..3 )
+    ] );
 }
 
 =head1 AUTHOR
@@ -37,7 +45,7 @@ it under the same terms as Perl itself.
 
 =over 4 
 
-=item * L<Games::NES::Emulator>
+=item * L<Games::NES::Emulator::PPU>
 
 =back
 

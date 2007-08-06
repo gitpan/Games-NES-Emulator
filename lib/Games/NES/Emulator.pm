@@ -9,10 +9,11 @@ use Games::NES::ROM; # the game
 use Games::NES::Emulator::CPU; # NES specific 6502 CPU
 use Games::NES::Emulator::PPU; # graphics
 use Games::NES::Emulator::APU; # audio
+use Games::NES::Emulator::Input; # controller
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
-__PACKAGE__->mk_accessors( qw( rom cpu ) );
+__PACKAGE__->mk_accessors( qw( rom cpu apu ppu mapper inputs running ) );
 
 =head1 NAME
 
@@ -60,7 +61,14 @@ sub new {
     my $class = shift;
     my $self  = $class->SUPER::new( @_ );
 
-    $self->cpu( Games::NES::Emulator::CPU->new )->init;
+    $self->cpu( Games::NES::Emulator::CPU->new )->init( $self );
+    $self->ppu( Games::NES::Emulator::PPU->new )->init( $self );
+    $self->apu( Games::NES::Emulator::APU->new )->init( $self );
+
+    $self->inputs( [
+        Games::NES::Emulator::Input->new( { number => 1 } ),
+        Games::NES::Emulator::Input->new( { number => 2 } )
+    ] );
 
     return $self;
 }
@@ -76,6 +84,18 @@ sub load_rom {
     my $filename = shift;
 
     $self->rom( Games::NES::ROM->new( $filename ) );
+
+    my $mapperid = $self->rom->mapper;
+
+    my $class = "Games::NES::Emulator::Mappers::Mapper${mapperid}";
+    eval "use $class";
+
+    if( $@ ) {
+        die "Mapper $mapperid not supported.";
+    }
+
+    $self->mapper( $class->new )->init( $self );
+    $self->cpu->interrupt_line( $self->cpu->interrupt_line | $self->cpu->RESET );
 }
 
 =head2 run( )
@@ -87,7 +107,14 @@ Begins execution of the code found in the ROM.
 sub run {
     my $self = shift;
     die 'No ROM loaded.' unless $self->rom;
-    die 'Not implemented!'
+
+    $self->running( 1 );
+
+    while( $self->running && defined $self->cpu->get_instruction ) {
+        print $self->cpu->debug;
+        <STDIN>;
+        $self->cpu->execute_instruction;
+    }
 }
 
 =head1 AUTHOR
