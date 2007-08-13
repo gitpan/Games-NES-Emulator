@@ -42,8 +42,9 @@ use constant APUIRQ => 0x10;
 
 __PACKAGE__->mk_accessors(
     qw( registers memory interrupt_line toggle
-    frame_counter cycle_counter current_op
-    temp temp2 instruction_table )
+    frame_counter cycle_counter instruction_table
+    current_op current_op_address
+    )
 );
 
 my @registers = qw( acc x y pc sp status );
@@ -102,12 +103,11 @@ sub init {
     my $reg = $self->registers;
 
     $self->memory( [ ( undef ) x 0xFF ] );
-    $reg->{ status } = SET_UNUSED;
-
     for( @registers ) {
         $reg->{ $_ } =  0;
     }
 
+    $reg->{ status } = SET_UNUSED;
     $self->create_instruction_table;
 }
 
@@ -120,23 +120,32 @@ namespace and creates a table.
 
 sub create_instruction_table {
     my $self  = shift;
-    my $table = { };
+    my %table;
 
+    my $class = __PACKAGE__ . '::Op';
     my $locator = Module::Pluggable::Object->new(
-        search_path => __PACKAGE__ . '::Op',
+        search_path => $class,
         require     => 1
     );
     
     for my $instruction ( $locator->plugins ) {
-        for my $name ( keys %{ $instruction->ADDRESSING } ) {
-            $table->{ $instruction->ADDRESSING->{ $name } } = {
-                mode => $name,
-                sub  => $instruction . "::$name"
-            }
-        }
+        my $ops = $instruction->INSTRUCTIONS;
+        ( my $name = $instruction ) =~ s{$class\::}{};
+        @table{ keys %$ops } = map { $_->{ name } = $name; $_ } values %$ops;
     }
 
-    $self->instruction_table( $table );
+    $self->instruction_table( \%table );
+}
+
+=head2 reset( )
+
+Simulate a hardware reset or power-on
+
+=cut
+
+sub reset {
+    my $self = shift;
+    
 }
 
 =head2 RAM_read( $address )
@@ -169,21 +178,18 @@ sub interrupt_request {
     my $self = shift;
     my $mem  = $self->memory;
     my $reg  = $self->registers;
-    my $sp   = $reg->{ sp };
     my $pc   = $reg->{ pc };
     my $int  = $self->interrupt_line;
 
-    $mem->[ $sp + 0x100 ]     = ( ( $pc + 2 ) & 0xFF00 ) >> 8;
-    $mem->[ $sp - 1 + 0x100 ] = ( $pc + 2 ) & 0xFF;
-    $mem->[ $sp - 2 + 0x100 ] = $reg->{ status };
-
-    $reg->{ sp } -= 3;
+    $self->push_stack( $self->hi_byte( $pc + 2 ) );
+    $self->push_stack( $self->lo_byte( $pc + 2 ) );
+    $self->push_stack( $reg->{ status } );
 
     if( $int == IRQ ) {
-        $reg->{ pc } = $mem->[ 0xFFFE ] + ( $mem->[ 0xFFFF ] << 8 );
+        $reg->{ pc } = $self->make_word( $mem->[ 0xFFFE ], $mem->[ 0xFFFF ] );
     }
     elsif( $int == NMI ) {
-        $reg->{ pc } = $mem->[ 0xFFFA ] + ( $mem->[ 0xFFFB ] << 8 );
+        $reg->{ pc } = $self->make_word( $mem->[ 0xFFFA ], $mem->[ 0xFFFB ] );
     }
 
     $self->interrupt_line( 0 );
@@ -214,40 +220,45 @@ sub execute_instruction {
     my $table = $self->instruction_table;
     my $mode;
 
-    $mode = $table->{ $op }->{ mode } if $table->{ $op };
+    $mode = $table->{ $op }->{ addressing } if $table->{ $op };
 
-    $self->cycle_counter( $self->cycle_counter + 2 );
-    $self->temp( undef );
-
+    my @args;
     if( $mode and my $sub = CPU::Emulator::6502::Addressing->can( $mode ) ) {
-        $sub->( $self, $op );
+        @args = $sub->( $self );
     }
 
     if( !$table->{ $op } ) {
-        $reg->{ pc }++;
+        $self->cycle_counter( $self->cycle_counter + 2 );
     }
     else {
-        eval {
-            no strict 'refs';
-            $table->{ $op }->{ sub }->( $self );
-        }
+        no strict 'refs';
+        $table->{ $op }->{ code }->( $self, @args );
+        $self->cycle_counter( $self->cycle_counter + $table->{ $op }->{ cycles } );
     }
 
 }
 
 =head2 get_instruction( )
 
+Reads the op from memory then moves the program counter forward 1.
+
 =cut
 
 sub get_instruction {
     my $self = shift;
     my $reg  = $self->registers;
-    my $op = $self->RAM_read( $reg->{ pc } );
-
+    
+    $self->current_op_address( $reg->{ pc } );
+    my $op = $self->RAM_read( $reg->{ pc }++ );
     return $self->current_op( $op );
 }
 
 =head2 debug( )
+
+This will return of a string with some debugging info, including: the current
+instruction, the pc location of the instruction, 10 lines of context from the
+PRG at the pc location and the state of the stack, sp, a, x, y and status
+registers after the op has executed.
 
 =cut
 
@@ -256,24 +267,26 @@ sub debug {
     my $reg = $self->registers;
 
     my $t = Text::SimpleTable->new(
-        [ 4, 'PC' ], [ 4, 'SP' ], [ 2, 'A' ], [ 2, 'X' ], [ 2, 'Y' ], [ 8, 'Status' ], [ 4, 'OP' ],
+        [ 4, 'PC' ], [ 4, 'OP' ], [ 4, 'SP' ], [ 2, 'A' ], [ 2, 'X' ], [ 2, 'Y' ], [ 8, 'Status' ],
     );
 
     my $status = $reg->{ status };
     my $a_status = '';
-    $a_status .= vec( $status, 7, 1 ) ? 'S' : '.';
-    $a_status .= vec( $status, 6, 1 ) ? 'V' : '.';
-    $a_status .= vec( $status, 5, 1 ) ? '-' : '.';
-    $a_status .= vec( $status, 4, 1 ) ? 'B' : '.';
-    $a_status .= vec( $status, 3, 1 ) ? 'D' : '.';
-    $a_status .= vec( $status, 2, 1 ) ? 'I' : '.';
-    $a_status .= vec( $status, 1, 1 ) ? 'Z' : '.';
-    $a_status .= vec( $status, 0, 1 ) ? 'C' : '.';
+    $a_status .= $status & SET_SIGN ? 'N' : '.';
+    $a_status .= $status & SET_OVERFLOW ? 'V' : '.';
+    $a_status .= $status & SET_UNUSED ? '-' : '.';
+    $a_status .= $status & SET_BRK ? 'B' : '.';
+    $a_status .= $status & SET_DECIMAL ? 'D' : '.';
+    $a_status .= $status & SET_INTERRUPT ? 'I' : '.';
+    $a_status .= $status & SET_ZERO ? 'Z' : '.';
+    $a_status .= $status & SET_CARRY ? 'C' : '.';
 
+    my $addr = $self->current_op_address;
     $t->row(
-        ( map { sprintf( '%x', $reg->{ $_ } ) } qw( pc sp acc x y ) ),
+        $addr ? sprintf( '%x', $addr ) : '-',
+        defined $self->current_op ? sprintf( '%s', $self->instruction_table->{ $self->current_op }->{ name } ) : '-',
+        ( map { sprintf( '%x', $reg->{ $_ } ) } qw( sp acc x y ) ),
         $a_status,
-        sprintf( '%x', $self->current_op || 0 ),
     );
 
     my $t_stack = Text::SimpleTable->new(
@@ -286,8 +299,13 @@ sub debug {
 
     for( 0..9 ) {
         $t_stack->row( sprintf( '%x', $self->memory->[ 0x1FF - $_ ] ) );
-        my $line = $reg->{ pc } + $_;
-        $t_code->row( sprintf( '%x', $line ), sprintf( '%x', $self->memory->[ $line ] ) );
+        if( $addr ) {
+            my $line = $addr + $_;
+            $t_code->row( sprintf( '%x', $line ), sprintf( '%x', $self->memory->[ $line ] ) );
+        }
+        else {
+            $t_code->row( '-', '-' );
+        }
     }
 
     my @s_rows = split( "\n", $t_stack->draw );
@@ -301,6 +319,126 @@ sub debug {
     
 
     return $t->draw . $output;
+}
+
+=head2 set_nz( $value )
+
+Sets the Sign and Zero status flags based on C<$value>.
+
+=cut
+
+sub set_nz {
+    my $self = shift;
+    my $value = shift;
+    my $reg = $self->registers;
+
+    $reg->{ status } &= CLEAR_ZS;
+
+    if( $value & 0x80 ) {
+        $reg->{ status } |= SET_SIGN;
+    }
+    elsif( $value == 0 ) {
+        $reg->{ status } |= SET_ZERO;
+    }
+}
+
+=head2 push_stack( $value )
+
+Pushes C<$value> onto the stack and decrements the stack pointer.
+
+=cut
+
+sub push_stack {
+    my $self = shift;
+    my $value = shift;
+    my $reg  = $self->registers;
+
+    $self->memory->[ $reg->{ sp } + 0x100 ] = $value;
+    $reg->{ sp }--;
+}
+
+=head2 pop_stack( )
+
+Increments the stack pointer and returns the current stack value.
+
+=cut
+
+sub pop_stack {
+    my $self = shift;
+    my $reg  = $self->registers;
+
+    $reg->{ sp }++;
+    my $value = $self->memory->[ $reg->{ sp } + 0x100 ];
+    return $value;
+}
+
+=head2 branch_if( $bool )
+
+Branches if C<$bool> is true.
+
+=cut
+
+sub branch_if {
+    my $self = shift;
+    my $reg  = $self->registers;
+
+    $reg->{ pc }++;
+
+    # branch or not
+    return if !shift;
+
+    my $old_pc = $reg->{ pc } - 2;
+    # address to branch to
+    my $data = $self->memory->[ $reg->{ pc } - 1 ];
+
+    if( $data & 0x80 ) {
+        $reg->{ pc } -= ( 128 - ( $data & 0x7f ) );
+    }
+    else {
+        $reg->{ pc } += $data;
+    }
+
+    # same mem page, add 1 cycles
+    if( ( $reg->{ pc } & 0xff00 ) == ( $old_pc & 0xff00 ) ) {
+        $self->cycle_counter( $self->cycle_counter + 1 );
+    }
+    # cross-page, add 2 cycles
+    else {
+        $self->cycle_counter( $self->cycle_counter + 2 );
+    }
+}
+
+=head2 make_word( $lo, $hi )
+
+Combines C<$lo> and C<$hi> into a 16-bit word.
+
+=cut
+
+sub make_word {
+    my ( $self, $lo, $hi ) = @_;
+    return $lo | ( $hi << 8 );
+}
+
+=head2 lo_byte( $word )
+
+Returns the lower byte of C<$word>.
+
+=cut
+
+sub lo_byte {
+    my( $self, $word ) = @_;
+    return $word & 0xff;
+}
+
+=head2 hi_byte( $word )
+
+Returns the higher byte of C<$word>.
+
+=cut
+
+sub hi_byte {
+    my( $self, $word ) = @_;
+    return ($word & 0xff00) >> 8;
 }
 
 =head1 AUTHOR

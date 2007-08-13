@@ -7,9 +7,11 @@ use base qw( Class::Accessor::Fast );
 
 use Games::NES::Emulator::PPU::Memory;
 
-__PACKAGE__->mk_accessors( qw( registers VRAM SPRRAM palette ) );
+__PACKAGE__->mk_accessors( qw( registers timers VRAM SPRRAM palette draw ) );
 
 my @registers = qw( control1 control2 status SPRRAM_addr VRAM_IO VRAM_addr VRAM_temp_addr );
+my @times = qw( sprite_0_pixel sprite_0_scanline other_irq other_pixel current_ppu_cycle );
+my @draw = qw( x_pixel_offset );
 
 =head1 NAME
 
@@ -30,6 +32,9 @@ sub init {
     $self->SPRRAM( [ ( 0 ) x ( 0xFF + 1 ) ] );
     $self->VRAM( Games::NES::Emulator::PPU::Memory->new )->init;
 
+    $self->timers( {} );
+    $self->timers->{ other_irq } = 0;
+
     $self->palette( [
         0x808080, 0x003DA6, 0x0012B0, 0x440096, 0xA1005E, 0xC70028, 0xBA0600, 0x8C1700,
         0x5C2F00, 0x104500, 0x054A00, 0x00472E, 0x004166, 0x000000, 0x050505, 0x050505,
@@ -42,6 +47,7 @@ sub init {
     
     $self->registers( { map { $_ => 0 } @registers } );
     $self->registers->{ status } = 0x80;
+    $self->draw( { map { $_ => 0 } @draw } );
 }
 
 =head1 AUTHOR

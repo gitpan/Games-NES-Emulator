@@ -11,7 +11,7 @@ use Games::NES::Emulator::PPU; # graphics
 use Games::NES::Emulator::APU; # audio
 use Games::NES::Emulator::Input; # controller
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 __PACKAGE__->mk_accessors( qw( rom cpu apu ppu mapper inputs running ) );
 
@@ -110,7 +110,7 @@ sub run {
 
     $self->running( 1 );
 
-    while( $self->running && defined $self->cpu->get_instruction ) {
+    while( $self->running ) {
         print $self->cpu->debug;
         <STDIN>;
         $self->cpu->execute_instruction;
